@@ -8,6 +8,7 @@
 
 #import "Action.h"
 
+#define DisplayBrightnessActionUsesO3Manager 0
 
 @interface DisplayBrightnessAction : Action <ActionWithString> {
 	NSString *brightnessText;

@@ -5,6 +5,7 @@
 //  Created by David Symonds on 22/07/07.
 //
 
+#import <Foundation/Foundation.h>
 
 @interface DSLogger : NSObject {
 	NSLock *lock;
@@ -29,7 +30,7 @@
 
 - (NSString *)buffer;
 
+@end
+
 #define DSLog(format, ...)	\
 	[[DSLogger sharedLogger] logFromFunction:[NSString stringWithUTF8String:__PRETTY_FUNCTION__] withFormat:(format),##__VA_ARGS__]
-
-@end

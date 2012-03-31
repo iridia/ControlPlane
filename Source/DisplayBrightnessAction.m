@@ -9,15 +9,18 @@
 //	Copyright 2011. All rights reserved.
 //
 
+#import <objc/runtime.h>
 #import "DisplayBrightnessAction.h"
 #import "DSLogger.h"
 #import <IOKit/graphics/IOGraphicsLib.h>
+#import <ApplicationServices/ApplicationServices.h>
 
+
+#if DisplayBrightnessActionUsesO3Manager
 
 #pragma mark Magic Bits!
 
 @interface O3Manager : NSObject
-+ (void)initialize;
 + (id)engineOfClass:(NSString *)cls forDisplayID:(CGDirectDisplayID)fp12;
 @end
 	
@@ -31,8 +34,7 @@
 - (void)bumpBrightnessDown;
 @end
 
-
-
+#endif
 
 
 @interface DisplayBrightnessAction (Private)
@@ -84,73 +86,63 @@
 }
 
 - (NSString *) description {
+	
 	return [NSString stringWithFormat: NSLocalizedString(@"Set brightness to %@%%.", @""), brightnessText];
+	
 }
 
 - (BOOL) execute: (NSString **) errorString {
 
-    // get system version
-	SInt32 major = 0, minor = 0;
-	Gestalt(gestaltSystemVersionMajor, &major);
-    Gestalt(gestaltSystemVersionMinor, &minor);
-    
-    if (major == 10 && minor > 7) {
-        *errorString = NSLocalizedString(@"DislplayBrightness is currently not supported on this version of OS X", @"");
-            return NO;
-    }
-        
-    [O3Manager initialize];
+	errorString = errorString ? errorString : &(NSString *){ nil };
+
+#if DisplayBrightnessActionUsesO3Manager
+
+	[O3Manager initialize];
+
+#endif
+
 	const int kMaxDisplays = 16;
-	//const CFStringRef kDisplayBrightness = CFSTR(kIODisplayBrightnessKey);
 	
-	BOOL errorOccurred = NO;
 	CGDirectDisplayID display[kMaxDisplays];
 	CGDisplayCount numDisplays;
 	CGDisplayErr err;
 	
-	// get list of displays
 	err = CGGetActiveDisplayList(kMaxDisplays, display, &numDisplays);
-    
 	if (err != CGDisplayNoErr) {
-		DSLog(@"Cannot get list of displays (error %d)", err);
-		errorOccurred = YES;
-	}
-    else {
-#if DEBUG_MODE
-        DSLog(@"There are %d display[s] connected", numDisplays);
-#endif
-    }
-	
-	// loop through displays
-	for (CGDisplayCount i = 0; i < numDisplays; ++i) {
-		CGDirectDisplayID dspy = display[i];
-        
-		//io_service_t service = CGDisplayIOServicePort(dspy);
-		
-		// set brightness
-        id<BrightnessEngineWireProtocol> engine =
-        	      [O3Manager engineOfClass: @"BrightnessEngine" forDisplayID: dspy];
-        
-		//err = IODisplaySetFloatParameter(service, kNilOptions, kDisplayBrightness, (brightness / 100.0));
-        [engine setBrightness: brightness / 100.0];
-        
-        /*
-        if (err == kIOReturnUnsupported) {
-            DSLog(@"Failed to set brightness of display 0x%x because the system reported it wasn't a supported operation", (unsigned int)dspy);
-        }
-		else if (err != kIOReturnSuccess) {
-			DSLog(@"Failed to set brightness of display 0x%x for an unknown reason, error was: 0x%x", (unsigned int)dspy, err);
-			errorOccurred = YES;
-			continue;
-		}
-         */
-	}
-	
-	if (errorOccurred) {
-		*errorString = [NSString stringWithFormat: NSLocalizedString(@"Failed setting brightness to %@%%.", @""), brightnessText];
+		*errorString = [NSString stringWithFormat:@"Cannot get list of displays (error %d)", err];
 		return NO;
-	} else
-		return YES;
+	}
+
+	for (CGDisplayCount i = 0; i < numDisplays; ++i) {
+		
+		CGDirectDisplayID displayID = display[i];
+
+#if DisplayBrightnessActionUsesO3Manager
+		
+		id<BrightnessEngineWireProtocol> engine = [O3Manager engineOfClass:@"BrightnessEngine" forDisplayID:displayID];
+		if (![engine setBrightness: brightness / 100.0]) {
+			*errorString = [NSString stringWithFormat:@"Error setting brightness of display with ID " PRIu32, displayID];
+			return NO;
+		}
+
+#else
+
+		io_service_t const service = CGDisplayIOServicePort(displayID);
+		CFStringRef const kDisplayBrightness = CFSTR(kIODisplayBrightnessKey);
+		
+		err = IODisplaySetFloatParameter(service, kNilOptions, kDisplayBrightness, brightness);
+		if (err != kIOReturnSuccess) {
+			*errorString = [NSString stringWithFormat:@"Failed to set brightness of display 0x%x (error %d)", (unsigned int)displayID, err];
+			return NO;
+		}
+		
+#endif
+
+	}
+	
+	*errorString = [NSString stringWithFormat: NSLocalizedString(@"Failed setting brightness to %@%%.", @""), brightnessText];
+	return NO;
+	
 }
 
 + (NSString *) helpText {
